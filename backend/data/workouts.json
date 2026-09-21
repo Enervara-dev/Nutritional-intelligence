@@ -1,0 +1,12 @@
+[
+  {"id":"walking","name":"Walking","category":"Cardio","input_type":"duration","met_value":3.5,"icon":"🚶"},
+  {"id":"running","name":"Running","category":"Cardio","input_type":"duration","met_value":7.5,"icon":"🏃"},
+  {"id":"cycling","name":"Cycling","category":"Cardio","input_type":"duration","met_value":6.0,"icon":"🚴"},
+  {"id":"swimming","name":"Swimming","category":"Cardio","input_type":"duration","met_value":6.0,"icon":"🏊"},
+  {"id":"badminton","name":"Badminton","category":"Sport","input_type":"duration","met_value":5.5,"icon":"🏸"},
+  {"id":"yoga","name":"Yoga","category":"Flexibility","input_type":"duration","met_value":2.5,"icon":"🧘"},
+  {"id":"gym_weights","name":"Gym (Weights)","category":"Strength","input_type":"duration","met_value":4.5,"icon":"🏋️"},
+  {"id":"pushups","name":"Push-ups","category":"Strength","input_type":"reps","calories_per_rep":0.5,"icon":"💪"},
+  {"id":"squats","name":"Squats","category":"Strength","input_type":"reps","calories_per_rep":0.32,"icon":"🦵"},
+  {"id":"situps","name":"Sit-ups","category":"Strength","input_type":"reps","calories_per_rep":0.25,"icon":"🤸"}
+]
