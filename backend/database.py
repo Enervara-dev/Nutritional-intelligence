@@ -20,20 +20,28 @@ def is_db_reachable(url: str) -> bool:
     except Exception:
         return False
 
+import time
+
 def init_engine(url: str):
     if url.startswith("sqlite"):
         return create_engine(url, connect_args={"check_same_thread": False})
-    if ("postgres" in url) and not is_db_reachable(url):
-        print(f"[ENERVARA] PostgreSQL at {url} is not reachable. Using SQLite fallback (enervara.db).")
-        return create_engine("sqlite:///./enervara.db", connect_args={"check_same_thread": False})
-    try:
-        eng = create_engine(url)
-        with eng.connect():
-            pass
-        return eng
-    except Exception as e:
-        print(f"[ENERVARA] Warning: Could not connect to {url} ({e}). Falling back to SQLite.")
-        return create_engine("sqlite:///./enervara.db", connect_args={"check_same_thread": False})
+    
+    # Try connecting with brief retries for container startup
+    max_retries = 10 if ("@db" in url or "postgres" in url) else 2
+    for attempt in range(max_retries):
+        if is_db_reachable(url):
+            try:
+                eng = create_engine(url)
+                with eng.connect():
+                    pass
+                return eng
+            except Exception:
+                pass
+        if attempt < max_retries - 1:
+            time.sleep(1)
+
+    print(f"[ENERVARA] Warning: Could not connect to {url}. Falling back to SQLite.")
+    return create_engine("sqlite:///./enervara.db", connect_args={"check_same_thread": False})
 
 engine = init_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

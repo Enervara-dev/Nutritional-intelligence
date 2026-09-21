@@ -66,49 +66,50 @@ ENERVARA is a full-stack health, nutrition, and metabolic intelligence applicati
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start (Docker Compose — Recommended)
 
-### 1. Start the PostgreSQL Database (Docker)
-Ensure Docker Desktop is open, then run:
-```powershell
-docker run -d --name enervara-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=enervara_db -p 5432:5432 --restart unless-stopped postgres:16-alpine
+Run the **entire full-stack platform** (Database + FastAPI Backend + React Frontend) with a single command:
+
+```bash
+docker compose up -d --build
 ```
 
-> **Note**: The backend features automatic SQLite fallback. If PostgreSQL is stopped, it automatically defaults to `enervara.db` without crashing.
+That's it! All three services will build, connect, and start automatically:
+- 🌐 **Frontend (React UI)**: [http://localhost:5173/](http://localhost:5173/)
+- ⚙️ **Backend API (FastAPI)**: [http://localhost:8000/](http://localhost:8000/)
+- 📖 **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- 🗄️ **Database**: PostgreSQL 16 on `localhost:5432` (`enervara_db`)
+
+To stop all containers:
+```bash
+docker compose down
+```
 
 ---
 
-### 2. Start the FastAPI Backend
+## 💻 Alternative: Running Locally (Development Mode)
+
+If you prefer running services outside Docker for live development:
+
+### 1. Start Only Database
 ```powershell
-cd enervara/backend
+docker compose up -d db
+```
 
-# Activate virtual environment
+### 2. Start FastAPI Backend
+```powershell
+cd backend
 .\venv\Scripts\activate
-
-# Install dependencies (if not already installed)
 pip install -r requirements.txt
-
-# Launch FastAPI with Uvicorn
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
-- API Base URL: **`http://127.0.0.1:8000/`**
-- Interactive Swagger UI: **`http://127.0.0.1:8000/docs`**
-- ReDoc UI: **`http://127.0.0.1:8000/redoc`**
 
----
-
-### 3. Start the React Frontend
-In a new terminal:
+### 3. Start React Frontend
 ```powershell
-cd enervara/frontend
-
-# Install dependencies
+cd frontend
 npm install
-
-# Start Vite dev server
 npm run dev
 ```
-- Frontend UI: **`http://localhost:5173/`**
 
 ---
 
