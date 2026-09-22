@@ -6,7 +6,7 @@ import models
 # Create all tables on startup
 models.Base.metadata.create_all(bind=engine)
 
-from routers import users, food, workout
+from routers import users, food, workout, assessment
 
 app = FastAPI(title="ENERVARA Nutrition Intelligence API", version="1.0")
 
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(food.router, prefix="", tags=["Food"])
 app.include_router(workout.router, prefix="", tags=["Workout"])
+app.include_router(assessment.router, prefix="", tags=["Assessment"])
 
 @app.get("/")
 def root():

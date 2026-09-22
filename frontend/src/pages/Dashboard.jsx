@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import {
   getFoods, logFood, getTodayFoodLog, deleteFoodLog,
   getWorkouts, logWorkout, getTodayWorkout, deleteWorkoutLog,
-  createProfile, getProfile
+  createProfile, getProfile,
+  computeAssessment, getLatestAssessment, getAssessmentHistory
 } from '../api/api';
 
 // ── Constant Definitions ───────────────────────────────────
@@ -318,6 +319,13 @@ export default function Dashboard({ initialSection = 'all' }) {
   const [totalBurned, setTotalBurned] = useState(0);
   const [selectedWorkoutForModal, setSelectedWorkoutForModal] = useState(null);
 
+  // Clinical assessment state
+  const [assessmentData, setAssessmentData] = useState(null);
+  const [evaluatingAssessment, setEvaluatingAssessment] = useState(false);
+  const [assessmentHistory, setAssessmentHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedHistoryId, setSelectedHistoryId] = useState(null);
+
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
@@ -336,6 +344,8 @@ export default function Dashboard({ initialSection = 'all' }) {
       fetchFoodLogs(userId);
       fetchWorkoutLogs(userId);
       fetchUserProfile(userId);
+      fetchAssessment(userId);
+      fetchAssessmentHistory(userId);
     }
   }, [userId]);
 
@@ -416,6 +426,55 @@ export default function Dashboard({ initialSection = 'all' }) {
     }
   }
 
+  async function fetchAssessment(uid) {
+    try {
+      const res = await getLatestAssessment(uid);
+      setAssessmentData(res.data);
+      if (res.data?.assessment_id) {
+        setSelectedHistoryId(res.data.assessment_id);
+      }
+    } catch (e) {
+      console.error('Error fetching assessment:', e);
+    }
+  }
+
+  async function fetchAssessmentHistory(uid) {
+    try {
+      const activeId = uid || parseInt(userId) || 1;
+      const res = await getAssessmentHistory(activeId);
+      setAssessmentHistory(res.data || []);
+    } catch (e) {
+      console.error('Error fetching assessment history:', e);
+    }
+  }
+
+  async function handleRunAssessment(targetUid) {
+    setEvaluatingAssessment(true);
+    try {
+      const activeId = targetUid || parseInt(userId) || 1;
+      const payload = {
+        user_id: activeId,
+        profile_override: {
+          ...profileForm,
+          height_cm: profileForm.height_cm ? parseFloat(profileForm.height_cm) : null,
+          weight_kg: profileForm.weight_kg ? parseFloat(profileForm.weight_kg) : null,
+          water_cups: profileForm.water_cups ? parseInt(profileForm.water_cups) : 0,
+        }
+      };
+      const res = await computeAssessment(payload);
+      setAssessmentData(res.data);
+      if (res.data?.assessment_id) {
+        setSelectedHistoryId(res.data.assessment_id);
+      }
+      await fetchAssessmentHistory(activeId);
+      showToast('AI Clinical Guidance updated');
+    } catch (e) {
+      showToast('Assessment error: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setEvaluatingAssessment(false);
+    }
+  }
+
   // ── Food Handlers ────────────────────────────────────────
   async function handleAddFood(qtyValue) {
     if (!selectedFoodForModal) return;
@@ -490,9 +549,13 @@ export default function Dashboard({ initialSection = 'all' }) {
       const newId = res.data.id;
       localStorage.setItem('enervara_user_id', newId);
       setUserId(newId);
-      showToast(`✅ Profile saved! User ID: ${newId}`);
+      showToast('Profile saved! Running AI Metabolic Analysis...');
       await fetchFoodLogs(newId);
       await fetchWorkoutLogs(newId);
+      await handleRunAssessment(newId);
+      setTimeout(() => {
+        document.getElementById('ai-clinical-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
     } catch (err) {
       showToast('❌ Error: ' + (err.response?.data?.detail || err.message));
     } finally {
@@ -573,6 +636,7 @@ export default function Dashboard({ initialSection = 'all' }) {
             { key: 'food', label: '🥗 Food Logger' },
             { key: 'workout', label: '🏃 Workout Logger' },
             { key: 'profile', label: '👤 Profile' },
+            { key: 'rules', label: '🧠 AI Clinical Guidance' },
           ].map(m => (
             <button
               key={m.key}
@@ -884,6 +948,10 @@ export default function Dashboard({ initialSection = 'all' }) {
           )}
         </section>
       )}
+
+
+
+
 
       {/* ── SECTION: PROFILE SETTINGS ──────────────────────── */}
       {(activeSection === 'all' || activeSection === 'profile') && (
@@ -1271,10 +1339,228 @@ export default function Dashboard({ initialSection = 'all' }) {
                 type="submit"
                 disabled={savingProfile}
               >
-                {savingProfile ? 'Saving Profile...' : '💾 Save Profile Baseline'}
+                {savingProfile ? 'Saving Profile...' : 'Save Profile Baseline'}
               </button>
             </div>
           </form>
+        </section>
+      )}
+
+      {/* ── SECTION: AI CLINICAL GUIDANCE & METABOLIC DIRECTIVES ───── */}
+      {(activeSection === 'all' || activeSection === 'rules') && (
+        <section className="card" id="ai-clinical-section" style={{ border: '1.5px solid #cbd5e1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--primary-dark)', margin: 0 }}>
+                  AI Clinical Guidance
+                </h2>
+                <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                  Gemini AI
+                </span>
+              </div>
+              <p className="text-muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+                Metabolic analysis of your conditions and logged intake.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="btn btn-outline"
+                style={{
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  borderColor: showHistory ? 'var(--primary)' : '#cbd5e1',
+                  background: showHistory ? '#eff6ff' : 'white',
+                  color: showHistory ? 'var(--primary)' : 'var(--text)'
+                }}
+                onClick={() => setShowHistory(prev => !prev)}
+                type="button"
+              >
+                {showHistory ? 'Hide History' : `History (${assessmentHistory.length})`}
+              </button>
+              <button
+                className="btn btn-outline"
+                style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600 }}
+                onClick={() => handleRunAssessment()}
+                disabled={evaluatingAssessment}
+                type="button"
+              >
+                {evaluatingAssessment ? 'Analyzing...' : 'Refresh AI'}
+              </button>
+            </div>
+          </div>
+
+          {/* Collapsible Assessment History Drawer */}
+          {showHistory && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 10,
+              padding: '16px',
+              marginBottom: 16
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--primary-dark)' }}>
+                    Past Assessment & Plan History
+                  </h3>
+                  <span style={{ fontSize: 11, background: '#e2e8f0', color: '#475569', padding: '1px 8px', borderRadius: 10, fontWeight: 600 }}>
+                    {assessmentHistory.length} saved
+                  </span>
+                </div>
+                <button
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}
+                  onClick={() => setShowHistory(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+
+              {assessmentHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                  No previous assessments saved yet. Click "Save Profile Baseline" or "Refresh AI" to generate your first plan.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 340, overflowY: 'auto', paddingRight: 4 }}>
+                  {assessmentHistory.map((item, idx) => {
+                    const isSelected = selectedHistoryId === item.assessment_id || (!selectedHistoryId && idx === 0);
+                    const formattedDate = item.assessed_at
+                      ? new Date(item.assessed_at).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : `Assessment #${item.assessment_id}`;
+
+                    return (
+                      <div
+                        key={item.assessment_id}
+                        style={{
+                          background: isSelected ? '#ffffff' : '#f8fafc',
+                          border: isSelected ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          padding: '12px 14px',
+                          boxShadow: isSelected ? '0 2px 6px rgba(59,130,246,0.1)' : 'none',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                              {formattedDate}
+                            </span>
+                            {idx === 0 && (
+                              <span style={{ fontSize: 10, background: '#dcfce7', color: '#166534', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
+                                LATEST
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            className="btn btn-outline"
+                            style={{
+                              padding: '3px 10px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              borderColor: isSelected ? '#3b82f6' : '#cbd5e1',
+                              color: isSelected ? '#2563eb' : '#475569',
+                              background: isSelected ? '#eff6ff' : 'white'
+                            }}
+                            onClick={() => {
+                              setSelectedHistoryId(item.assessment_id);
+                              setAssessmentData(item);
+                            }}
+                            type="button"
+                          >
+                            {isSelected ? 'Viewing This Plan' : 'Load This Plan'}
+                          </button>
+                        </div>
+
+                        {item.ai_report && (
+                          <div style={{
+                            fontSize: 12,
+                            color: '#475569',
+                            margin: '8px 0 6px',
+                            lineHeight: 1.4,
+                            whiteSpace: 'pre-wrap',
+                            maxHeight: isSelected ? 'none' : '44px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {item.ai_report}
+                          </div>
+                        )}
+
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!assessmentData && (
+            <div style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-muted)' }}>
+              <p style={{ margin: '0 auto 12px', fontSize: 13 }}>
+                Click <strong>"Save Profile Baseline"</strong> above to generate your short AI clinical summary.
+              </p>
+              <button
+                className="btn btn-primary"
+                style={{ padding: '8px 20px', fontSize: 13 }}
+                onClick={() => handleRunAssessment()}
+                disabled={evaluatingAssessment}
+                type="button"
+              >
+                {evaluatingAssessment ? 'Analyzing...' : 'Run AI Analysis'}
+              </button>
+            </div>
+          )}
+
+          {assessmentData && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              
+              {/* Short & High-Impact AI Clinical Synthesis */}
+              {assessmentData.ai_report && (
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderLeft: '4px solid #2563eb',
+                  borderRadius: 8,
+                  padding: '16px 18px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}>
+                  {assessmentData.ai_report.split('\n').filter(line => line.trim()).map((line, idx) => {
+                    const colonIdx = line.indexOf(':');
+                    if (colonIdx !== -1 && colonIdx < 35) {
+                      const label = line.substring(0, colonIdx).trim();
+                      const val = line.substring(colonIdx + 1).trim();
+                      return (
+                        <div key={idx} style={{ fontSize: 13.5, lineHeight: 1.55 }}>
+                          <strong style={{ color: 'var(--primary-dark)', fontWeight: 700 }}>
+                            {label}:{' '}
+                          </strong>
+                          <span style={{ color: '#334155' }}>{val}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={idx} style={{ fontSize: 13.5, lineHeight: 1.55, color: '#334155' }}>
+                        {line}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
 

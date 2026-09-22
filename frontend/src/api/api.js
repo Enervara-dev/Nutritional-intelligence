@@ -17,4 +17,11 @@ export const logWorkout       = (data) => api.post('/workout/log', data);
 export const getTodayWorkout  = (userId) => api.get(`/workout/log/${userId}/today`);
 export const deleteWorkoutLog = (logId) => api.delete(`/workout/log/${logId}`);
 
+export const computeAssessment   = (data) => api.post('/assessment/dos-donts', data);
+export const getLatestAssessment = (userId) => api.get(`/assessment/${userId}/latest`);
+export const getAssessmentHistory = (userId) => api.get(`/assessment/${userId}/history`);
+export const generateReport      = (data) => api.post('/report/generate', data);
+
 export default api;
+
+
