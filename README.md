@@ -17,13 +17,17 @@ ENERVARA is an enterprise-grade full-stack health, nutrition, and metabolic inte
 
 ### 2. Clinical AI Dietary Intelligence (Gemini 3.6 Flash)
 - **Enterprise Google GenAI Engine**: Uses the modern `google-genai` SDK with strict clinical prompt boundaries and injection protection.
+- **7-Day Day-Wise Food & Workout Intelligence**:
+  - Ingests past 7 days of food logs and workout logs organized chronologically day-by-day.
+  - Detects **chronic multi-day patterns** (e.g. consuming deep-fried/oily foods consecutively for 4 days) and warns about compounding cardiovascular and metabolic hazards.
+  - Correlates daily caloric and macro intake with workout expenditure and net energy balance.
 - **Structured 3-Part Clinical Guidance**:
-  - **Food Assessment**: Objective Good/Bad evaluation correlating logged intake against diagnosed conditions and goals, with plain-English physiological justification and positive encouragement.
+  - **Food Assessment**: Objective Good/Bad evaluation correlating multi-day intake and activity against diagnosed conditions and goals, with plain-English physiological justification and positive encouragement.
   - **Healthier Alternatives**: 2 to 3 practical, accessible food replacements tailored to dietary preferences and allergies.
   - **Daily Portion Limit**: Clear, quantifiable daily threshold defining safe intake vs. adverse thresholds.
 - **Strict Clinical Formatting**: 100% zero-emoji enforcement across all prompts, system rules, and UI rendering for clinical professionalism.
 - **Patient Privacy**: Patient names and PII are never passed to the AI engine; evaluations operate strictly on anonymized physiological and intake context.
-- **Resilient Fallback Engine**: If network or quota limits occur, a deterministic rule-based engine generates formatted clinical guidance instantly without disruption.
+- **Resilient Fallback Engine**: If network or quota limits occur, a deterministic rule-based engine generates formatted clinical guidance instantly without disruption, preserving multi-day streak detection.
 
 ### 3. Interactive Assessment & Plan History Archive
 - **Historical Plan Drawer**: View, compare, and reload previous clinical assessments and plans.

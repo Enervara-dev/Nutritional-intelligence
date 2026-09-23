@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import date
 
@@ -93,6 +93,63 @@ class WorkoutLogOut(BaseModel):
     input_type: str
     input_value: float
     calories_burned: float
+
+    class Config:
+        from_attributes = True
+
+
+# ── Clinical Assessment Intelligence ──────────────────
+class ClinicalAssessmentGuidance(BaseModel):
+    is_good: bool = Field(
+        ...,
+        description="True if logged nutrition and lifestyle choices are beneficial; False if harmful or concerning"
+    )
+    food_assessment: str = Field(
+        ...,
+        description="Plain-English clinical evaluation with biochemical rationale and positive encouragement"
+    )
+    multi_day_pattern: Optional[str] = Field(
+        None,
+        description="Detection of multi-day recurring dietary patterns across past days (e.g. 4 consecutive days of oily foods)"
+    )
+    healthier_alternatives: List[str] = Field(
+        default_factory=list,
+        description="2 to 3 targeted whole-food alternatives respecting patient allergies and diet preferences"
+    )
+    daily_portion_limit: str = Field(
+        ...,
+        description="Explicit quantifiable daily threshold distinguishing safe amounts from adverse thresholds"
+    )
+    workout_impact: Optional[str] = Field(
+        None,
+        description="Clinical observation of exercise energy expenditure, fueling adequacy, and recovery"
+    )
+
+    def to_formatted_text(self) -> str:
+        """Serializes the structured Pydantic model into the standard clean clinical text summary."""
+        parts = [f"Food Assessment: {self.food_assessment}"]
+        if self.multi_day_pattern:
+            parts.append(f"Pattern Warning: {self.multi_day_pattern}")
+        if self.workout_impact:
+            parts.append(f"Exercise Impact: {self.workout_impact}")
+        alts = ", ".join(self.healthier_alternatives) if self.healthier_alternatives else "None specified"
+        parts.append(f"Healthier Alternatives: {alts}")
+        parts.append(f"Daily Portion Limit: {self.daily_portion_limit}")
+        return "\n".join(parts)
+
+
+class AssessmentResponse(BaseModel):
+    assessment_id: int
+    user_id: int
+    assessed_at: Optional[str] = None
+    guidance: ClinicalAssessmentGuidance
+    ai_report: str
+    dos: List[Any] = []
+    donts: List[Any] = []
+    cautions: List[Any] = []
+    collisions: List[Any] = []
+    tips: List[Any] = []
+    profile_evaluated: Optional[dict] = None
 
     class Config:
         from_attributes = True
