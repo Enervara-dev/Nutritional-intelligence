@@ -98,7 +98,7 @@ export default function FoodLogger() {
     if (!userId) { showToast('⚠️ Please create a profile first'); return; }
     setLoading(true);
     try {
-      await logFood({ user_id: parseInt(userId), food_id: selectedFood.id, meal_type: activeTab, quantity_type: selectedFood.quantity_type, quantity_value: quantityValue });
+      await logFood({ user_id: userId, food_id: selectedFood.id, meal_type: activeTab, quantity_type: selectedFood.quantity_type, quantity_value: quantityValue });
       await fetchLog();
       showToast(`✅ ${selectedFood.name} added to ${activeTab}`);
     } catch(e) { showToast('❌ ' + (e.response?.data?.detail || e.message)); }

@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 import models
 
-# Create all tables on startup
-models.Base.metadata.create_all(bind=engine)
+# Database is strictly read-only for fetching clinical data
 
 from routers import users, food, workout, assessment
 

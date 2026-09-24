@@ -36,7 +36,7 @@ export default function WorkoutLogger() {
     if (!userId) { showToast('⚠️ Please create a profile first'); return; }
     const inputValue = drawer.input_type === 'duration' ? duration : reps;
     try {
-      await logWorkout({ user_id: parseInt(userId), workout_id: drawer.id, input_type: drawer.input_type, input_value: inputValue });
+      await logWorkout({ user_id: userId, workout_id: drawer.id, input_type: drawer.input_type, input_value: inputValue });
       await fetchLog();
       showToast(`✅ ${drawer.name} logged!`);
       setDrawer(null);

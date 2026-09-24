@@ -155,11 +155,10 @@ Frontend runs at `http://localhost:5173/`.
 enervara/
 ├── backend/
 │   ├── data/
-│   │   ├── foods.json            # 27+ Whole foods & recipes (nutrition per 100g/unit/portion)
-│   │   ├── workouts.json         # Exercise database with MET values & calorie formulas
-│   │   └── diseases.json         # Clinical rules for 10 conditions (dos, donts, tags, reasons)
+│   │   ├── foods.json            # Whole foods & recipes (nutrition per 100g/unit/portion)
+│   │   └── workouts.json         # Exercise database with MET values & calorie formulas
 │   ├── engine/
-│   │   ├── rules_engine.py       # Clinical rules engine + collision conflict resolution
+│   │   ├── rules_engine.py       # Clinical safety engine (Allergies, Medications, Condition mapping)
 │   │   ├── burn_calc.py          # MET exercise burn calculations calibrated to user weight
 │   │   └── nutrition_calc.py     # Portions and macro calculations (protein, carbs, fat)
 │   ├── routers/

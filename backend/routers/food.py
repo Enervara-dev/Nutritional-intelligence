@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import func, cast
-from datetime import date, datetime, timezone
+from fastapi import APIRouter, HTTPException
+from datetime import date, datetime
+from collections import defaultdict
 import json, os
-from database import get_db
-import models, schemas
+import schemas
 from engine.nutrition_calc import calculate_nutrition
 
 router = APIRouter()
 
 FOODS_PATH = os.path.join(os.path.dirname(__file__), "../data/foods.json")
+
+# In-memory storage for logged meals per patient session (Zero DB insertions)
+SESSION_FOOD_LOGS = defaultdict(list)
+_log_counter = 1
+
 
 def load_foods():
     with open(FOODS_PATH, "r", encoding="utf-8") as f:
@@ -25,49 +28,51 @@ def get_foods(diet_type: str = None):
 
 
 @router.post("/food/log", response_model=schemas.FoodLogOut)
-def log_food(entry: schemas.FoodLogIn, db: Session = Depends(get_db)):
+def log_food(entry: schemas.FoodLogIn):
+    global _log_counter
     foods = load_foods()
     food = next((f for f in foods if f["id"] == entry.food_id), None)
     if not food:
         raise HTTPException(status_code=404, detail=f"Food '{entry.food_id}' not found")
 
     nutrition = calculate_nutrition(food, entry.quantity_type, entry.quantity_value)
+    log_id = _log_counter
+    _log_counter += 1
 
-    log = models.FoodLog(
-        user_id=entry.user_id,
-        food_id=entry.food_id,
-        food_name=food["name"],
-        meal_type=entry.meal_type,
-        quantity_type=entry.quantity_type,
-        quantity_value=entry.quantity_value,
-        calories=nutrition.get("calories", 0),
-        protein_g=nutrition.get("protein_g", 0),
-        carbs_g=nutrition.get("carbs_g", 0),
-        fat_g=nutrition.get("fat_g", 0),
-    )
-    db.add(log)
-    db.commit()
-    db.refresh(log)
-    return log
+    log_entry = {
+        "id": log_id,
+        "user_id": str(entry.user_id),
+        "food_id": entry.food_id,
+        "food_name": food["name"],
+        "meal_type": entry.meal_type,
+        "quantity_type": entry.quantity_type,
+        "quantity_value": entry.quantity_value,
+        "calories": nutrition.get("calories", 0),
+        "protein_g": nutrition.get("protein_g", 0),
+        "carbs_g": nutrition.get("carbs_g", 0),
+        "fat_g": nutrition.get("fat_g", 0),
+        "logged_at": datetime.now()
+    }
+    SESSION_FOOD_LOGS[str(entry.user_id)].append(log_entry)
+    return log_entry
 
 
 @router.get("/food/log/{user_id}/today")
-def get_today_food_log(user_id: int, db: Session = Depends(get_db)):
+def get_today_food_log(user_id: str):
     today = date.today()
-    logs = db.query(models.FoodLog).filter(
-        models.FoodLog.user_id == user_id,
-        func.date(models.FoodLog.logged_at) == today
-    ).all()
+    uid = str(user_id)
+    user_logs = SESSION_FOOD_LOGS.get(uid, [])
+    logs = [l for l in user_logs if l["logged_at"].date() == today]
 
     # Group by meal slot
     slots = {"breakfast": [], "lunch": [], "dinner": [], "snacks": [], "other": []}
     for log in logs:
-        slot = log.meal_type if log.meal_type in slots else "other"
+        slot = log["meal_type"] if log["meal_type"] in slots else "other"
         slots[slot].append({
-            "id": log.id, "food_id": log.food_id, "food_name": log.food_name,
-            "quantity_type": log.quantity_type, "quantity_value": log.quantity_value,
-            "calories": log.calories, "protein_g": log.protein_g,
-            "carbs_g": log.carbs_g, "fat_g": log.fat_g,
+            "id": log["id"], "food_id": log["food_id"], "food_name": log["food_name"],
+            "quantity_type": log["quantity_type"], "quantity_value": log["quantity_value"],
+            "calories": log["calories"], "protein_g": log["protein_g"],
+            "carbs_g": log["carbs_g"], "fat_g": log["fat_g"],
         })
 
     # Per-slot totals
@@ -93,10 +98,14 @@ def get_today_food_log(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/food/log/{log_id}")
-def delete_food_log(log_id: int, db: Session = Depends(get_db)):
-    log = db.query(models.FoodLog).filter(models.FoodLog.id == log_id).first()
-    if not log:
+def delete_food_log(log_id: int):
+    found = False
+    for uid, logs in SESSION_FOOD_LOGS.items():
+        before_len = len(logs)
+        SESSION_FOOD_LOGS[uid] = [l for l in logs if l["id"] != log_id]
+        if len(SESSION_FOOD_LOGS[uid]) < before_len:
+            found = True
+            break
+    if not found:
         raise HTTPException(status_code=404, detail="Log entry not found")
-    db.delete(log)
-    db.commit()
     return {"detail": "Deleted"}

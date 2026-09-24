@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Union
 from datetime import date
 
 
-# ── User ──────────────────────────────────────────────
+# ── User & Patient ────────────────────────────────────
 class AllergyItem(BaseModel):
     name: str
     severity: str  # mild / moderate / severe
@@ -17,12 +17,14 @@ class SurgeryItem(BaseModel):
 class UserProfileIn(BaseModel):
     # Basic
     name: Optional[str] = None
+    email: Optional[str] = None
     dob: Optional[date] = None
     sex: Optional[str] = None
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
     state: Optional[str] = None
     city: Optional[str] = None
+    blood_group: Optional[str] = None
     # Lifestyle
     diet_type: Optional[str] = None
     exercise_habit: Optional[str] = None
@@ -45,17 +47,33 @@ class UserProfileIn(BaseModel):
     health_goal: Optional[str] = None
 
 class UserProfileOut(UserProfileIn):
-    id: int
+    id: Any
     age: Optional[int] = None
     bmi: Optional[float] = None
+    prescriptions: Optional[List[Any]] = []
 
     class Config:
         from_attributes = True
 
+class PatientSummary(BaseModel):
+    id: str
+    user_id: Optional[str] = None
+    name: str
+    age: Optional[int] = None
+    sex: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    bmi: Optional[float] = None
+    prescription_count: int = 0
+    conditions_count: int = 0
+    email: Optional[str] = None
+
 
 # ── Food Log ──────────────────────────────────────────
 class FoodLogIn(BaseModel):
-    user_id: int
+    user_id: Any
     food_id: str
     meal_type: str          # breakfast / lunch / dinner / snacks / other
     quantity_type: str
@@ -63,7 +81,7 @@ class FoodLogIn(BaseModel):
 
 class FoodLogOut(BaseModel):
     id: int
-    user_id: int
+    user_id: Any
     food_id: str
     food_name: str
     meal_type: str
@@ -80,14 +98,14 @@ class FoodLogOut(BaseModel):
 
 # ── Workout Log ───────────────────────────────────────
 class WorkoutLogIn(BaseModel):
-    user_id: int
+    user_id: Any
     workout_id: str
     input_type: str     # duration / reps
     input_value: float
 
 class WorkoutLogOut(BaseModel):
     id: int
-    user_id: int
+    user_id: Any
     workout_id: str
     workout_name: str
     input_type: str
@@ -140,7 +158,7 @@ class ClinicalAssessmentGuidance(BaseModel):
 
 class AssessmentResponse(BaseModel):
     assessment_id: int
-    user_id: int
+    user_id: Any
     assessed_at: Optional[str] = None
     guidance: ClinicalAssessmentGuidance
     ai_report: str

@@ -29,7 +29,7 @@ if sys.stdout.encoding != 'utf-8':
 # Add backend directory to sys.path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from engine.rules_engine import evaluate_dietary_rules, load_json, FOODS_PATH, DISEASES_PATH
+from engine.rules_engine import evaluate_dietary_rules, load_json, FOODS_PATH
 from routers.food import calculate_nutrition
 from engine.burn_calc import calculate_burn
 

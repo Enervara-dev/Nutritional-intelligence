@@ -3,7 +3,8 @@ import {
   getFoods, logFood, getTodayFoodLog, deleteFoodLog,
   getWorkouts, logWorkout, getTodayWorkout, deleteWorkoutLog,
   createProfile, getProfile,
-  computeAssessment, getLatestAssessment, getAssessmentHistory
+  computeAssessment, getLatestAssessment, getAssessmentHistory,
+  getPatientsList
 } from '../api/api';
 
 // ── Constant Definitions ───────────────────────────────────
@@ -266,8 +267,11 @@ export default function Dashboard({ initialSection = 'all' }) {
     if (initialSection) setActiveSection(initialSection);
   }, [initialSection]);
 
-  // User profile state
-  const [userId, setUserId] = useState(() => localStorage.getItem('enervara_user_id') || 1);
+  // User profile & Aurora patient state
+  const [userId, setUserId] = useState(() => localStorage.getItem('enervara_user_id') || '');
+  const [patients, setPatients] = useState([]);
+  const [patientPrescriptions, setPatientPrescriptions] = useState([]);
+  const [showPrescriptionsModal, setShowPrescriptionsModal] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -276,20 +280,21 @@ export default function Dashboard({ initialSection = 'all' }) {
   const [medInput, setMedInput] = useState('');
 
   const [profileForm, setProfileForm] = useState({
-    name: 'Mahesh',
-    dob: '1995-06-15',
+    name: 'Patient',
+    email: '',
+    dob: '',
     sex: 'Male',
-    height_cm: '175',
-    weight_kg: '72',
-    state: 'Karnataka',
-    city: 'Bengaluru',
-    diet_type: 'vegetarian',
-    exercise_habit: 'yes',
+    height_cm: '',
+    weight_kg: '',
+    state: '',
+    city: '',
+    diet_type: 'non_veg',
+    exercise_habit: 'sometimes',
     alcohol: 'no',
     smoking: 'no',
     sleep_hours: 7.5,
     water_cups: 8,
-    conditions: ['mild_acidity'],
+    conditions: [],
     allergies: [],
     medications: [],
     surgeries: [],
@@ -300,6 +305,9 @@ export default function Dashboard({ initialSection = 'all' }) {
     relaxation: 'daily',
     health_goal: 'maintain',
   });
+
+  const [emailInput, setEmailInput] = useState('');
+  const [emailLookupLoading, setEmailLookupLoading] = useState(false);
 
   // Food logger state
   const [foods, setFoods] = useState([]);
@@ -331,6 +339,34 @@ export default function Dashboard({ initialSection = 'all' }) {
     setTimeout(() => setToast(''), 3000);
   };
 
+  async function handleLookupEmail(targetEmail) {
+    const emailToSearch = (targetEmail || emailInput).trim();
+    if (!emailToSearch) {
+      showToast('⚠️ Please enter an email address');
+      return;
+    }
+    setEmailLookupLoading(true);
+    try {
+      const res = await getProfile(emailToSearch);
+      if (res.data) {
+        const patientId = res.data.id;
+        setUserId(patientId);
+        localStorage.setItem('enervara_user_id', patientId);
+        setEmailInput(res.data.email || emailToSearch);
+        await fetchUserProfile(patientId);
+        await fetchFoodLogs(patientId);
+        await fetchWorkoutLogs(patientId);
+        await fetchAssessment(patientId);
+        await fetchAssessmentHistory(patientId);
+        showToast(`✅ Loaded patient: ${res.data.name} (${res.data.email || emailToSearch})`);
+      }
+    } catch (err) {
+      showToast(`❌ ${err.response?.data?.detail || 'No patient record found for this email'}`);
+    } finally {
+      setEmailLookupLoading(false);
+    }
+  }
+
   const setField = (k, v) => setProfileForm(f => ({ ...f, [k]: v }));
 
   const bmi = calcBMI(profileForm.weight_kg, profileForm.height_cm);
@@ -338,8 +374,33 @@ export default function Dashboard({ initialSection = 'all' }) {
 
   // ── Initial Data Loading ─────────────────────────────────
   useEffect(() => {
+    fetchPatientsList();
     fetchFoodsList();
     fetchWorkoutsList();
+  }, []);
+
+  async function fetchPatientsList() {
+    try {
+      const res = await getPatientsList();
+      if (res.data && res.data.length > 0) {
+        setPatients(res.data);
+        const stored = localStorage.getItem('enervara_user_id');
+        const match = res.data.find(p => p.id === stored || p.email === stored);
+        const defaultId = match ? match.id : res.data[0].id;
+        setUserId(defaultId);
+        localStorage.setItem('enervara_user_id', defaultId);
+        if (match && match.email) {
+          setEmailInput(match.email);
+        } else if (res.data[0].email) {
+          setEmailInput(res.data[0].email);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching patients list from DB:', e);
+    }
+  }
+
+  useEffect(() => {
     if (userId) {
       fetchFoodLogs(userId);
       fetchWorkoutLogs(userId);
@@ -394,9 +455,16 @@ export default function Dashboard({ initialSection = 'all' }) {
     try {
       const res = await getProfile(uid);
       if (res.data) {
+        if (res.data.email) {
+          setEmailInput(res.data.email);
+        }
+        if (res.data.prescriptions) {
+          setPatientPrescriptions(res.data.prescriptions);
+        }
         setProfileForm(prev => ({
           ...prev,
           name: res.data.name || prev.name,
+          email: res.data.email || prev.email,
           dob: res.data.dob || prev.dob,
           sex: res.data.sex || prev.sex,
           height_cm: res.data.height_cm ? String(res.data.height_cm) : prev.height_cm,
@@ -422,7 +490,7 @@ export default function Dashboard({ initialSection = 'all' }) {
         }));
       }
     } catch (e) {
-      // If profile not found for uid, continue with defaults
+      console.error('Error fetching profile from Aurora DB:', e);
     }
   }
 
@@ -440,7 +508,7 @@ export default function Dashboard({ initialSection = 'all' }) {
 
   async function fetchAssessmentHistory(uid) {
     try {
-      const activeId = uid || parseInt(userId) || 1;
+      const activeId = uid || userId;
       const res = await getAssessmentHistory(activeId);
       setAssessmentHistory(res.data || []);
     } catch (e) {
@@ -451,7 +519,8 @@ export default function Dashboard({ initialSection = 'all' }) {
   async function handleRunAssessment(targetUid) {
     setEvaluatingAssessment(true);
     try {
-      const activeId = targetUid || parseInt(userId) || 1;
+      const activeId = targetUid || userId;
+      const allCurrentFoods = foodLogData.slots ? Object.values(foodLogData.slots).flat() : [];
       const payload = {
         user_id: activeId,
         profile_override: {
@@ -459,7 +528,9 @@ export default function Dashboard({ initialSection = 'all' }) {
           height_cm: profileForm.height_cm ? parseFloat(profileForm.height_cm) : null,
           weight_kg: profileForm.weight_kg ? parseFloat(profileForm.weight_kg) : null,
           water_cups: profileForm.water_cups ? parseInt(profileForm.water_cups) : 0,
-        }
+        },
+        foods: allCurrentFoods,
+        workouts: loggedWorkouts
       };
       const res = await computeAssessment(payload);
       setAssessmentData(res.data);
@@ -467,7 +538,7 @@ export default function Dashboard({ initialSection = 'all' }) {
         setSelectedHistoryId(res.data.assessment_id);
       }
       await fetchAssessmentHistory(activeId);
-      showToast('AI Clinical Guidance updated');
+      showToast('AI Clinical Guidance updated based on patient baseline + intake');
     } catch (e) {
       showToast('Assessment error: ' + (e.response?.data?.detail || e.message));
     } finally {
@@ -480,7 +551,7 @@ export default function Dashboard({ initialSection = 'all' }) {
     if (!selectedFoodForModal) return;
     try {
       await logFood({
-        user_id: parseInt(userId) || 1,
+        user_id: userId,
         food_id: selectedFoodForModal.id,
         meal_type: activeMealTab,
         quantity_type: selectedFoodForModal.quantity_type,
@@ -510,7 +581,7 @@ export default function Dashboard({ initialSection = 'all' }) {
     if (!selectedWorkoutForModal) return;
     try {
       await logWorkout({
-        user_id: parseInt(userId) || 1,
+        user_id: userId,
         workout_id: selectedWorkoutForModal.id,
         input_type: selectedWorkoutForModal.input_type,
         input_value: parseFloat(inputValue)
@@ -635,7 +706,7 @@ export default function Dashboard({ initialSection = 'all' }) {
             { key: 'all', label: '📌 All in One' },
             { key: 'food', label: '🥗 Food Logger' },
             { key: 'workout', label: '🏃 Workout Logger' },
-            { key: 'profile', label: '👤 Profile' },
+            { key: 'profile', label: '📋 DB Patient Record' },
             { key: 'rules', label: '🧠 AI Clinical Guidance' },
           ].map(m => (
             <button
@@ -653,6 +724,160 @@ export default function Dashboard({ initialSection = 'all' }) {
               {m.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* ── CLINICAL DATABASE & PATIENT EMAIL LOOKUP BAR ──────────── */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: 14,
+        border: '1.5px solid #cbd5e1',
+        padding: '16px 20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14
+      }}>
+        {/* Status Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              background: '#ecfdf5',
+              color: '#065f46',
+              border: '1px solid #a7f3d0',
+              borderRadius: 20,
+              padding: '4px 11px',
+              fontSize: 12,
+              fontWeight: 700
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+              Aurora RDS DB Connected (Read-Only)
+            </div>
+
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
+              👤 Active Patient: <span style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>{profileForm.name || 'Loading...'}</span>
+              {profileForm.email && (
+                <span style={{ color: '#2563eb', fontWeight: 600, marginLeft: 6 }}>
+                  ({profileForm.email})
+                </span>
+              )}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {patientPrescriptions.length > 0 && (
+              <button
+                onClick={() => setShowPrescriptionsModal(true)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #c7d2fe',
+                  background: '#e0e7ff',
+                  color: '#3730a3',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                📋 View Clinical Rx ({patientPrescriptions.length})
+              </button>
+            )}
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
+              {profileForm.conditions.length} Conditions · {profileForm.medications.length} Meds
+            </span>
+          </div>
+        </div>
+
+        {/* Email Entry & Quick Select Row */}
+        <div style={{
+          background: '#f8fafc',
+          padding: '12px 16px',
+          borderRadius: 10,
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap' }}>
+              ✉️ Enter User Email:
+            </label>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleLookupEmail();
+              }}
+              style={{ display: 'flex', gap: 8, flex: 1, minWidth: 280 }}
+            >
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="Enter email (e.g. srivathsaksherasagar2006@gmail.com, kkrishnarajr@gmail.com)"
+                style={{
+                  flex: 1,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: 13,
+                  background: '#ffffff',
+                  color: '#0f172a'
+                }}
+              />
+              <button
+                type="submit"
+                disabled={emailLookupLoading}
+                className="btn btn-primary"
+                style={{ padding: '8px 20px', fontSize: 13, whiteSpace: 'nowrap', fontWeight: 700 }}
+              >
+                {emailLookupLoading ? 'Loading...' : '🔍 Load Patient'}
+              </button>
+            </form>
+          </div>
+
+          {/* Quick Select Buttons for Registered Users in DB */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', borderTop: '1px dashed #e2e8f0', paddingTop: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+              Quick Load Users:
+            </span>
+            {[
+              { email: 'srivathsaksherasagar2006@gmail.com', name: 'SRIVATHSA' },
+              { email: 'kkrishnarajr@gmail.com', name: 'Krishna K' },
+              { email: 'akselcruses@gmail.com', name: 'Aksel Cruses' },
+              { email: 'admin@enervara.com', name: 'Admin' }
+            ].map(u => (
+              <button
+                key={u.email}
+                type="button"
+                onClick={() => {
+                  setEmailInput(u.email);
+                  handleLookupEmail(u.email);
+                }}
+                style={{
+                  background: (emailInput.toLowerCase() === u.email.toLowerCase() || (profileForm.email && profileForm.email.toLowerCase() === u.email.toLowerCase())) ? '#2563eb' : '#e2e8f0',
+                  color: (emailInput.toLowerCase() === u.email.toLowerCase() || (profileForm.email && profileForm.email.toLowerCase() === u.email.toLowerCase())) ? '#ffffff' : '#1e293b',
+                  border: 'none',
+                  borderRadius: 14,
+                  padding: '4px 11px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                👤 {u.name} <span style={{ opacity: 0.75, fontWeight: 400 }}>({u.email})</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -676,7 +901,7 @@ export default function Dashboard({ initialSection = 'all' }) {
             background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(10px)',
             padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600
           }}>
-            👤 User #{userId || 1} · Goal: {GOALS.find(g => g.value === profileForm.health_goal)?.title || 'Maintain'}
+            👤 {profileForm.name || 'Patient'} · Goal: {GOALS.find(g => g.value === profileForm.health_goal)?.title || 'Maintain'}
           </div>
         </div>
 
@@ -953,396 +1178,244 @@ export default function Dashboard({ initialSection = 'all' }) {
 
 
 
-      {/* ── SECTION: PROFILE SETTINGS ──────────────────────── */}
+      {/* ── SECTION: PATIENT CLINICAL DOSSIER (READ-ONLY FROM DB) ── */}
       {(activeSection === 'all' || activeSection === 'profile') && (
-        <section className="card" id="profile-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
+        <section className="card" id="profile-section" style={{ border: '1.5px solid #cbd5e1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 14, flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--primary-dark)', margin: 0 }}>
-                👤 Profile & Physiological Calibration
-              </h2>
-              <p className="text-muted" style={{ margin: '2px 0 0' }}>
-                Your biological baseline drives all calorie burn formulas and nutritional recommendations.
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--primary-dark)', margin: 0 }}>
+                  📋 Patient Medical Baseline (Fetched from Database)
+                </h2>
+                <span style={{ fontSize: 11, background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontWeight: 700, padding: '3px 9px', borderRadius: 12 }}>
+                  Aurora PostgreSQL 17
+                </span>
+              </div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                Verified biological stats, doctor prescriptions, and medications fetched directly from your database.
               </p>
             </div>
             {userId && (
-              <span style={{ fontSize: 12, fontWeight: 700, background: '#dcfce7', color: '#166534', padding: '6px 14px', borderRadius: 20 }}>
-                Active Profile ID: #{userId}
+              <span style={{ fontSize: 12, fontWeight: 700, background: '#e0e7ff', color: '#3730a3', padding: '6px 14px', borderRadius: 20 }}>
+                Patient ID: {userId}
               </span>
             )}
           </div>
 
-          <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-
-            {/* 1. Basic Info */}
-            <div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 12 }}>
-                1. Basic Demographics
-              </h3>
-              <div className="form-grid">
-                <div className="form-group full">
-                  <label>Full Name</label>
-                  <input
-                    type="text"
-                    value={profileForm.name}
-                    onChange={e => setField('name', e.target.value)}
-                    placeholder="e.g. Alex Smith"
-                  />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* 1. Demographics Grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 14
+            }}>
+              <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>PATIENT NAME</span>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                  {profileForm.name || 'Unnamed Patient'}
                 </div>
-
-                <div className="form-group">
-                  <label>Date of Birth</label>
-                  <input
-                    type="date"
-                    value={profileForm.dob}
-                    onChange={e => setField('dob', e.target.value)}
-                  />
-                  {age !== null && (
-                    <span className="text-muted mt8" style={{ color: 'var(--primary)', fontWeight: 600 }}>
-                      Age: {age} years
-                    </span>
-                  )}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Sex: <strong>{profileForm.sex || 'Not specified'}</strong> · Blood: <strong>{profileForm.blood_group || 'N/A'}</strong>
                 </div>
+              </div>
 
-                <div className="form-group">
-                  <label>Sex</label>
-                  <Toggle
-                    options={[
-                      { label: 'Male', value: 'Male' },
-                      { label: 'Female', value: 'Female' },
-                      { label: 'Other', value: 'Other' }
-                    ]}
-                    value={profileForm.sex}
-                    onChange={v => setField('sex', v)}
-                  />
+              <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>AGE & BIRTH DATE</span>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                  {age !== null ? `${age} years` : 'Age N/A'}
                 </div>
-
-                <div className="form-group">
-                  <label>Height (cm)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={profileForm.height_cm}
-                    onChange={e => setField('height_cm', e.target.value)}
-                    placeholder="e.g. 175"
-                  />
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  DOB: {profileForm.dob ? profileForm.dob : 'Not specified'}
                 </div>
+              </div>
 
-                <div className="form-group">
-                  <label>Weight (kg)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={profileForm.weight_kg}
-                    onChange={e => setField('weight_kg', e.target.value)}
-                    placeholder="e.g. 72"
-                  />
+              <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>BODY STATS & BMI</span>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                  {profileForm.height_cm || '--'} cm / {profileForm.weight_kg || '--'} kg
                 </div>
-
-                {bmi && (
-                  <div className="form-group full">
-                    <div className="bmi-badge">
-                      <span className="bmi-value">{bmi}</span>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary-dark)', textTransform: 'uppercase' }}>
-                          Calculated BMI
-                        </div>
-                        <div className="bmi-label" style={{ fontWeight: 600, color: 'var(--primary)' }}>
-                          Status: {bmiCategory(bmi)}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="form-group">
-                  <label>State</label>
-                  <select value={profileForm.state} onChange={e => setField('state', e.target.value)}>
-                    <option value="">Select state</option>
-                    {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                <div style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 700, marginTop: 2 }}>
+                  BMI: {bmi || '--'} {bmi ? `(${bmiCategory(bmi)})` : ''}
                 </div>
+              </div>
 
-                <div className="form-group">
-                  <label>City</label>
-                  <input
-                    type="text"
-                    value={profileForm.city}
-                    onChange={e => setField('city', e.target.value)}
-                    placeholder="e.g. Bengaluru"
-                  />
+              <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>LOCATION</span>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                  {profileForm.city || 'City N/A'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  State: {profileForm.state || 'N/A'}
                 </div>
               </div>
             </div>
 
-            {/* 2. Lifestyle */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 12 }}>
-                2. Lifestyle Habits
-              </h3>
-              <div className="form-grid">
-                <div className="form-group">
-                  <label>Diet Preference</label>
-                  <select value={profileForm.diet_type} onChange={e => setField('diet_type', e.target.value)}>
-                    <option value="vegetarian">Vegetarian</option>
-                    <option value="vegan">Vegan</option>
-                    <option value="eggetarian">Eggetarian</option>
-                    <option value="non_veg">Non-Vegetarian</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Exercise Habit</label>
-                  <Toggle
-                    options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }, { label: 'Sometimes', value: 'sometimes' }]}
-                    value={profileForm.exercise_habit}
-                    onChange={v => setField('exercise_habit', v)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Alcohol</label>
-                  <Toggle
-                    options={[{ label: 'Never', value: 'no' }, { label: 'Sometimes', value: 'sometimes' }, { label: 'Regular', value: 'yes' }]}
-                    value={profileForm.alcohol}
-                    onChange={v => setField('alcohol', v)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Smoking</label>
-                  <Toggle
-                    options={[{ label: 'Never', value: 'no' }, { label: 'Sometimes', value: 'sometimes' }, { label: 'Regular', value: 'yes' }]}
-                    value={profileForm.smoking}
-                    onChange={v => setField('smoking', v)}
-                  />
-                </div>
-
-                <div className="form-group full">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <label>Daily Sleep Hours</label>
-                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{profileForm.sleep_hours} hrs</span>
-                  </div>
-                  <div className="slider-row">
-                    <input
-                      type="range"
-                      className="slider"
-                      min="0"
-                      max="12"
-                      step="0.5"
-                      value={profileForm.sleep_hours}
-                      onChange={e => setField('sleep_hours', parseFloat(e.target.value))}
-                    />
-                    <span className="slider-value">{profileForm.sleep_hours}h</span>
-                  </div>
-                </div>
-
-                <div className="form-group full">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <label>Water Intake</label>
-                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>
-                      {profileForm.water_cups} cups (~{profileForm.water_cups * 250} ml)
-                    </span>
-                  </div>
-                  <div className="slider-row">
-                    <input
-                      type="range"
-                      className="slider"
-                      min="0"
-                      max="20"
-                      step="1"
-                      value={profileForm.water_cups}
-                      onChange={e => setField('water_cups', parseInt(e.target.value))}
-                    />
-                    <span className="slider-value">{profileForm.water_cups} cups</span>
-                  </div>
-                </div>
+            {/* 2. Medical Conditions */}
+            <div style={{ background: '#ffffff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  🏥 Extracted Medical Conditions ({profileForm.conditions.length})
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>From Doctor Diagnoses & Records</span>
               </div>
+              {profileForm.conditions.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {profileForm.conditions.map(c => (
+                    <span
+                      key={c}
+                      style={{
+                        background: '#fee2e2',
+                        color: '#991b1b',
+                        border: '1px solid #fecaca',
+                        padding: '5px 12px',
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontWeight: 700
+                      }}
+                    >
+                      ⚠️ {c.toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0, fontStyle: 'italic' }}>
+                  No chronic conditions flagged in records.
+                </p>
+              )}
             </div>
 
-            {/* 3. Health & Medical */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 12 }}>
-                3. Health & Medical Conditions
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <div className="form-group">
-                  <label>Medical Conditions</label>
-                  <input
-                    type="text"
-                    placeholder="Search condition (e.g. Diabetes, Hypertension)..."
-                    value={condSearch}
-                    onChange={e => setCondSearch(e.target.value)}
-                  />
-                  <div className="condition-dropdown mt8">
-                    {filteredConditions.map(c => (
-                      <div
-                        key={c}
-                        className={`condition-option${profileForm.conditions.includes(c) ? ' selected' : ''}`}
-                        onClick={() => toggleCondition(c)}
-                      >
-                        <span>{profileForm.conditions.includes(c) ? '✓' : '○'}</span> {c}
-                      </div>
-                    ))}
-                  </div>
-                  {profileForm.conditions.length > 0 && (
-                    <div className="tag-input-wrap mt8">
-                      {profileForm.conditions.map(c => (
-                        <span key={c} className="tag">
-                          {c} <span className="remove" onClick={() => toggleCondition(c)}>×</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+            {/* 3. Doctor Prescriptions retrieved from DB */}
+            <div style={{ background: '#ffffff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  🩺 Doctor Prescriptions in DB ({patientPrescriptions.length})
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Aurora RDS `prescriptions` Table</span>
+              </div>
 
-                {/* Allergies */}
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <label>Food Allergies</label>
-                    <button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: 12 }} onClick={addAllergy} type="button">
-                      + Add Allergy
-                    </button>
-                  </div>
-                  {profileForm.allergies.map((a, i) => (
-                    <div key={i} className="allergy-item mt8" style={{ background: '#f8faff', padding: 8, borderRadius: 8, border: '1px solid var(--border)' }}>
-                      <select value={a.name} onChange={e => updateAllergy(i, 'name', e.target.value)} style={{ flex: 1 }}>
-                        {ALLERGY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                      <select value={a.severity} onChange={e => updateAllergy(i, 'severity', e.target.value)} style={{ flex: 1 }}>
-                        <option value="mild">Mild</option>
-                        <option value="moderate">Moderate</option>
-                        <option value="severe">Severe</option>
-                      </select>
-                      <button className="btn btn-danger" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => removeAllergy(i)} type="button">✕</button>
+              {patientPrescriptions.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {patientPrescriptions.map((rx, idx) => (
+                    <div
+                      key={rx.id || idx}
+                      style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8,
+                        padding: '12px 16px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <strong style={{ fontSize: 14, color: '#1e293b' }}>
+                            {rx.doctor ? `Dr. ${rx.doctor}` : 'Doctor not recorded'}
+                          </strong>
+                          {rx.clinic && (
+                            <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>
+                              at {rx.clinic}
+                            </span>
+                          )}
+                        </div>
+                        {rx.date && (
+                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                            📅 {rx.date}
+                          </span>
+                        )}
+                      </div>
+
+                      {(rx.indication || rx.notes) && (
+                        <div style={{ marginTop: 6, fontSize: 13, color: '#334155', background: '#f1f5f9', padding: '6px 10px', borderRadius: 6 }}>
+                          <strong>Indication / Diagnosis:</strong> {rx.indication || rx.notes}
+                        </div>
+                      )}
+
+                      {rx.medications && rx.medications.length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                            Medications Prescribed:
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                            {rx.medications.map((m, mIdx) => (
+                              <span
+                                key={mIdx}
+                                style={{
+                                  background: '#e0e7ff',
+                                  color: '#3730a3',
+                                  border: '1px solid #c7d2fe',
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 600
+                                }}
+                              >
+                                💊 {m.name} {m.dosage ? `(${m.dosage})` : ''} {m.timing ? `· ${m.timing}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0, fontStyle: 'italic' }}>
+                  No uploaded doctor prescriptions for this patient in the database.
+                </p>
+              )}
+            </div>
 
-                {/* Medications */}
-                <div className="form-group">
-                  <label>Current Medications <span className="text-muted">(Press Enter to add)</span></label>
-                  <div className="tag-input-wrap">
-                    {profileForm.medications.map(m => (
-                      <span key={m} className="tag">
-                        {m} <span className="remove" onClick={() => removeMed(m)}>×</span>
-                      </span>
-                    ))}
-                    <input
-                      className="tag-input"
-                      value={medInput}
-                      onChange={e => setMedInput(e.target.value)}
-                      onKeyDown={addMed}
-                      placeholder="Type medication and press Enter..."
-                    />
-                  </div>
-                </div>
+            {/* 4. Active Medications Table / Summary */}
+            <div style={{ background: '#ffffff', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  💊 Active Medications ({profileForm.medications.length})
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Retrieved from DB</span>
+              </div>
 
-                {/* Surgeries */}
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <label>Past Surgeries</label>
-                    <button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: 12 }} onClick={addSurgery} type="button">
-                      + Add Surgery
-                    </button>
-                  </div>
-                  {profileForm.surgeries.map((s, i) => (
-                    <div key={i} className="surgery-block mt8">
-                      <div className="form-group"><label style={{ fontSize: 11 }}>Type</label><input value={s.type} onChange={e => updateSurgery(i, 'type', e.target.value)} placeholder="e.g. Appendectomy" /></div>
-                      <div className="form-group"><label style={{ fontSize: 11 }}>Year</label><input type="number" value={s.year} onChange={e => updateSurgery(i, 'year', e.target.value)} placeholder="2022" /></div>
-                      <div className="form-group"><label style={{ fontSize: 11 }}>Hospital</label><input value={s.hospital} onChange={e => updateSurgery(i, 'hospital', e.target.value)} placeholder="Hospital name" /></div>
-                      <div className="form-group">
-                        <label style={{ fontSize: 11 }}>Recovery</label>
-                        <select value={s.recovery_status} onChange={e => updateSurgery(i, 'recovery_status', e.target.value)}>
-                          <option value="fully_recovered">Fully Recovered</option>
-                          <option value="recovering">Recovering</option>
-                        </select>
-                      </div>
-                      <div style={{ gridColumn: '1/-1', textAlign: 'right' }}>
-                        <button className="btn btn-danger" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => removeSurgery(i)} type="button">Remove</button>
-                      </div>
-                    </div>
+              {profileForm.medications.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {profileForm.medications.map((m, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        background: '#eff6ff',
+                        color: '#1d4ed8',
+                        border: '1px solid #bfdbfe',
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 600
+                      }}
+                    >
+                      ✓ {m}
+                    </span>
                   ))}
                 </div>
-              </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0, fontStyle: 'italic' }}>
+                  No active medications currently listed.
+                </p>
+              )}
             </div>
 
-            {/* 4. Mental Wellbeing */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 12 }}>
-                4. Mental Wellbeing
-              </h3>
-              <div className="form-grid">
-                {[
-                  ['mood', 'Mood Score', ['😞', '😄']],
-                  ['stress', 'Stress Level', ['😌', '😰']],
-                  ['energy', 'Energy Level', ['🥱', '⚡']],
-                  ['work_pressure', 'Work Pressure', ['😎', '🤯']]
-                ].map(([key, lbl, [lo, hi]]) => (
-                  <div key={key} className="form-group full">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <label>{lbl}</label>
-                      <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{profileForm[key]} / 10</span>
-                    </div>
-                    <div className="slider-row">
-                      <span style={{ fontSize: 14 }}>{lo}</span>
-                      <input
-                        type="range"
-                        className="slider"
-                        min="1"
-                        max="10"
-                        value={profileForm[key]}
-                        onChange={e => setField(key, parseInt(e.target.value))}
-                      />
-                      <span style={{ fontSize: 14 }}>{hi}</span>
-                      <span className="slider-value">{profileForm[key]}</span>
-                    </div>
-                  </div>
-                ))}
-
-                <div className="form-group full">
-                  <label>Relaxation Practices</label>
-                  <Toggle
-                    options={[{ label: 'Daily', value: 'daily' }, { label: 'Weekly', value: 'weekly' }, { label: 'Occasionally', value: 'occasionally' }, { label: 'Never', value: 'never' }]}
-                    value={profileForm.relaxation}
-                    onChange={v => setField('relaxation', v)}
-                  />
-                </div>
-              </div>
+            {/* 5. Database Status & Integrity Note */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px dashed #cbd5e1',
+              borderRadius: 8,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 12,
+              color: '#64748b'
+            }}>
+              <span>🔒 <strong>Mode:</strong> Strict Read-Only Fetch</span>
+              <span><strong>Source:</strong> AWS Aurora PostgreSQL 17</span>
+              <span><strong>Writes / Inserts:</strong> 0 (Disabled)</span>
             </div>
-
-            {/* 5. Goal */}
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary-dark)', marginBottom: 12 }}>
-                5. Primary Health Goal
-              </h3>
-              <div className="goal-cards">
-                {GOALS.map(g => (
-                  <div
-                    key={g.value}
-                    className={`goal-card${profileForm.health_goal === g.value ? ' selected' : ''}`}
-                    onClick={() => setField('health_goal', g.value)}
-                  >
-                    <div className="goal-icon">{g.icon}</div>
-                    <div className="goal-title">{g.title}</div>
-                    <div className="goal-desc">{g.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Save Profile button */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 12 }}>
-              <button
-                className="btn btn-primary"
-                style={{ padding: '12px 32px', fontSize: 15 }}
-                type="submit"
-                disabled={savingProfile}
-              >
-                {savingProfile ? 'Saving Profile...' : 'Save Profile Baseline'}
-              </button>
-            </div>
-          </form>
+          </div>
         </section>
       )}
 
@@ -1524,41 +1597,101 @@ export default function Dashboard({ initialSection = 'all' }) {
 
           {assessmentData && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              
-              {/* Short & High-Impact AI Clinical Synthesis */}
+
+              {/* 1. Clinical Status Banner */}
+              {assessmentData.guidance && (
+                <div style={{
+                  background: assessmentData.guidance.is_good ? '#f0fdf4' : '#fef2f2',
+                  border: `1.5px solid ${assessmentData.guidance.is_good ? '#86efac' : '#fecaca'}`,
+                  borderRadius: 12,
+                  padding: '14px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 10
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 24 }}>{assessmentData.guidance.is_good ? '🟢' : '🔴'}</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: assessmentData.guidance.is_good ? '#166534' : '#991b1b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {assessmentData.guidance.is_good ? 'Clinically Beneficial Intake' : 'Metabolic / Condition Contraindication Detected'}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: assessmentData.guidance.is_good ? '#15803d' : '#b91c1c', marginTop: 2 }}>
+                        Evaluated against {profileForm.name}'s medical baseline and doctor prescriptions
+                      </div>
+                    </div>
+                  </div>
+                  {profileForm.conditions.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {profileForm.conditions.map((c, i) => (
+                        <span key={i} style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                          🩺 {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 2. Structured AI Clinical Synthesis */}
               {assessmentData.ai_report && (
                 <div style={{
-                  background: '#f8fafc',
+                  background: '#ffffff',
                   border: '1px solid #e2e8f0',
-                  borderLeft: '4px solid #2563eb',
-                  borderRadius: 8,
-                  padding: '16px 18px',
+                  borderRadius: 12,
+                  padding: '18px 20px',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 10
+                  gap: 12,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                 }}>
                   {assessmentData.ai_report.split('\n').filter(line => line.trim()).map((line, idx) => {
                     const colonIdx = line.indexOf(':');
                     if (colonIdx !== -1 && colonIdx < 35) {
                       const label = line.substring(0, colonIdx).trim();
                       const val = line.substring(colonIdx + 1).trim();
+                      const isAlert = label.toLowerCase().includes('pattern') || label.toLowerCase().includes('warning');
                       return (
-                        <div key={idx} style={{ fontSize: 13.5, lineHeight: 1.55 }}>
-                          <strong style={{ color: 'var(--primary-dark)', fontWeight: 700 }}>
+                        <div key={idx} style={{
+                          fontSize: 13.5,
+                          lineHeight: 1.6,
+                          padding: isAlert ? '8px 12px' : '0',
+                          background: isAlert ? '#fffbeb' : 'transparent',
+                          border: isAlert ? '1px solid #fde68a' : 'none',
+                          borderRadius: isAlert ? 8 : 0
+                        }}>
+                          <strong style={{ color: isAlert ? '#b45309' : 'var(--primary-dark)', fontWeight: 700 }}>
                             {label}:{' '}
                           </strong>
-                          <span style={{ color: '#334155' }}>{val}</span>
+                          <span style={{ color: isAlert ? '#92400e' : '#334155' }}>{val}</span>
                         </div>
                       );
                     }
                     return (
-                      <div key={idx} style={{ fontSize: 13.5, lineHeight: 1.55, color: '#334155' }}>
+                      <div key={idx} style={{ fontSize: 13.5, lineHeight: 1.6, color: '#334155' }}>
                         {line}
                       </div>
                     );
                   })}
                 </div>
               )}
+
+              {/* 3. Clinical Directives & Lifestyle Guidance (Tips) */}
+              {assessmentData.tips && assessmentData.tips.length > 0 && (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--primary-dark)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    💡 Clinical Directives & Doctor Guidelines ({profileForm.name})
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: '#334155', lineHeight: 1.5 }}>
+                    {assessmentData.tips.map((tip, i) => (
+                      <li key={i}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+
             </div>
           )}
         </section>
@@ -1580,6 +1713,107 @@ export default function Dashboard({ initialSection = 'all' }) {
           onConfirm={handleAddWorkout}
           onClose={() => setSelectedWorkoutForModal(null)}
         />
+      )}
+
+      {/* Clinical Prescriptions Modal from Aurora DB */}
+      {showPrescriptionsModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: 20
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 16, width: '100%', maxWidth: 700,
+            maxHeight: '85vh', overflowY: 'auto', padding: '24px 28px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 18
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--primary-dark)' }}>
+                  📋 Retrieved Clinical Prescriptions ({patientPrescriptions.length})
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                  Fetched from Aurora PostgreSQL database for {profileForm.name}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPrescriptionsModal(false)}
+                style={{
+                  background: '#f1f5f9', border: 'none', borderRadius: 8,
+                  width: 32, height: 32, fontSize: 16, cursor: 'pointer', fontWeight: 700
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {patientPrescriptions.map((rx, idx) => (
+                <div key={idx} style={{
+                  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 18px',
+                  display: 'flex', flexDirection: 'column', gap: 10
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 14 }}>
+                      👨‍⚕️ {rx.doctor ? `Dr. ${rx.doctor}` : 'Attending Physician'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
+                      🗓️ {rx.date || 'Undated'}
+                    </div>
+                  </div>
+
+                  {rx.clinic && (
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      🏥 {rx.clinic}
+                    </div>
+                  )}
+
+                  {rx.indication && (
+                    <div style={{
+                      background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
+                      padding: '8px 12px', fontSize: 12.5, color: '#991b1b', lineHeight: 1.5
+                    }}>
+                      <strong>Clinical Indication & Diagnosis:</strong> {rx.indication}
+                    </div>
+                  )}
+
+                  {rx.notes && (
+                    <div style={{
+                      background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
+                      padding: '8px 12px', fontSize: 12.5, color: '#166534', lineHeight: 1.5
+                    }}>
+                      <strong>Doctor's Advice:</strong> {rx.notes}
+                    </div>
+                  )}
+
+                  {rx.medications && rx.medications.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                        Prescribed Medications ({rx.medications.length}):
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {rx.medications.map((m, mIdx) => (
+                          <div key={mIdx} style={{
+                            background: 'white', border: '1px solid #cbd5e1', borderRadius: 6,
+                            padding: '6px 10px', fontSize: 12, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6
+                          }}>
+                            <div>
+                              <strong style={{ color: '#0f172a' }}>{m.name}</strong>
+                              {m.generic_name && <span style={{ color: '#64748b', marginLeft: 6 }}>({m.generic_name})</span>}
+                            </div>
+                            <div style={{ color: '#0369a1', fontWeight: 600 }}>
+                              {[m.dosage, m.frequency, m.timing, m.duration_text].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && <div className="toast">{toast}</div>}

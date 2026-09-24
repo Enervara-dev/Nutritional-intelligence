@@ -23,7 +23,7 @@ export default function App() {
             🏃 Workout
           </NavLink>
           <NavLink to="/profile" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            👤 Profile
+            📋 DB Patient Record
           </NavLink>
         </div>
       </nav>

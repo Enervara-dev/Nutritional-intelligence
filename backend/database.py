@@ -10,12 +10,14 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./enervara.db"
 
+from sqlalchemy.sql import text
+
 def is_db_reachable(url: str) -> bool:
     try:
         parsed = urlparse(url)
         host = parsed.hostname or "localhost"
         port = parsed.port or 5432
-        with socket.create_connection((host, port), timeout=0.5):
+        with socket.create_connection((host, port), timeout=4.0):
             return True
     except Exception:
         return False
@@ -23,20 +25,26 @@ def is_db_reachable(url: str) -> bool:
 import time
 
 def init_engine(url: str):
-    if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+    if not url or url.startswith("sqlite"):
+        return create_engine("sqlite:///./enervara.db", connect_args={"check_same_thread": False})
     
-    # Try connecting with brief retries for container startup
-    max_retries = 10 if ("@db" in url or "postgres" in url) else 2
+    # Try connecting with retries for cloud/container startup
+    max_retries = 3
     for attempt in range(max_retries):
         if is_db_reachable(url):
             try:
-                eng = create_engine(url)
-                with eng.connect():
-                    pass
+                eng = create_engine(
+                    url,
+                    pool_pre_ping=True,
+                    pool_recycle=300
+                )
+                with eng.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                parsed = urlparse(url)
+                print(f"[ENERVARA] Connected successfully to PostgreSQL database at {parsed.hostname}")
                 return eng
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[ENERVARA] Connection attempt {attempt + 1} failed: {e}")
         if attempt < max_retries - 1:
             time.sleep(1)
 

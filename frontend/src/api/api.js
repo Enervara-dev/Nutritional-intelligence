@@ -4,8 +4,10 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
 });
 
+export const getPatientsList   = () => api.get('/users/patients');
 export const createProfile    = (data) => api.post('/users/profile', data);
-export const getProfile       = (id) => api.get(`/users/${id}/profile`);
+export const getProfile       = (id) => api.get(`/users/${encodeURIComponent(id)}/profile`);
+export const getProfileByEmail = (email) => api.get('/users/lookup/by-email', { params: { email } });
 
 export const getFoods         = (diet_type) => api.get('/foods/list', { params: diet_type ? { diet_type } : {} });
 export const logFood          = (data) => api.post('/food/log', data);
