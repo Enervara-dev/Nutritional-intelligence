@@ -44,10 +44,13 @@ def log_workout(entry: schemas.WorkoutLogIn, db: Session = Depends(get_db)):
             auth_u = db.query(models.AuthUser).filter(func.lower(models.AuthUser.email) == uid_str.strip().lower()).first()
             if auth_u:
                 patient = db.query(models.Patient).filter(models.Patient.user_id == auth_u.id).first()
-        if not patient:
-            patient = db.query(models.Patient).filter(models.Patient.id == uid_str).first()
-        if not patient and len(uid_str) == 36:
-            patient = db.query(models.Patient).filter(models.Patient.user_id == uid_str).first()
+        if not patient and len(uid_str) >= 32:
+            try:
+                import uuid
+                uuid.UUID(uid_str)
+                patient = db.query(models.Patient).filter((models.Patient.id == uid_str) | (models.Patient.user_id == uid_str)).first()
+            except Exception:
+                pass
         if patient and patient.weight_kg:
             weight_kg = float(patient.weight_kg)
     except Exception:

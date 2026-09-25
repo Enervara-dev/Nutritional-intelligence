@@ -183,9 +183,10 @@ def evaluate_dietary_rules(user_profile: dict) -> dict:
 
         # Match condition to clinical knowledge
         def match_disease(c_raw):
-            c_low = c_raw.strip().lower()
+            c_low = str(c_raw).strip().lower().replace("_", " ").replace("-", " ")
             for k, v in CLINICAL_CONDITIONS.items():
-                if c_low == k.lower() or c_low in k.lower() or k.lower() in c_low:
+                k_low = k.lower().replace("-", " ")
+                if c_low == k_low or c_low in k_low or k_low in c_low:
                     return k, v
             if any(term in c_low for term in ["diabet", "sugar"]):
                 return "Type 2 Diabetes", CLINICAL_CONDITIONS.get("Type 2 Diabetes")

@@ -2,6 +2,8 @@
 
 ENERVARA is an enterprise-grade full-stack health, nutrition, and metabolic intelligence application designed to deliver real-time personalized nutrition insights, exercise tracking, clinical safety calibration, and AI-driven dietary guidance.
 
+> **Full Technical & Clinical Documentation**: See [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) for complete clinical rules, request flows, API specs, and architecture diagrams.
+
 ---
 
 ## Key Features
@@ -193,7 +195,10 @@ enervara/
 │   └── package.json              # Frontend scripts and dependencies
 │
 ├── docker-compose.yml            # Multi-container orchestration (DB + Backend + Frontend)
-└── README.md                     # Documentation
+├── docs/                         # Technical & clinical architecture documentation
+│   ├── DOCUMENTATION.md          # Complete clinical rules, API specs, and system blueprints
+│   └── README.md                 # Documentation overview
+└── README.md                     # Repository overview & quickstart
 ```
 
 ---

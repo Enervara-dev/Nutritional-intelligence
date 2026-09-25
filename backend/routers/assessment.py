@@ -19,6 +19,9 @@ class AssessmentRequest(BaseModel):
     foods: Optional[List[Dict[str, Any]]] = None
     workouts: Optional[List[Dict[str, Any]]] = None
 
+    class Config:
+        extra = "allow"
+
 
 class ReportRequest(BaseModel):
     user_id: Any
@@ -664,10 +667,13 @@ def compute_assessment(req: AssessmentRequest, db: Session = Depends(get_db)):
                 auth_u = db.query(models.AuthUser).filter(func.lower(models.AuthUser.email) == uid_str.strip().lower()).first()
                 if auth_u:
                     patient = db.query(models.Patient).filter(models.Patient.user_id == auth_u.id).first()
-            if not patient:
-                patient = db.query(models.Patient).filter(models.Patient.id == uid_str).first()
-            if not patient and len(uid_str) == 36:
-                patient = db.query(models.Patient).filter(models.Patient.user_id == uid_str).first()
+            if not patient and len(uid_str) >= 32:
+                try:
+                    import uuid
+                    uuid.UUID(uid_str)
+                    patient = db.query(models.Patient).filter((models.Patient.id == uid_str) | (models.Patient.user_id == uid_str)).first()
+                except Exception:
+                    pass
             if patient:
                 from routers.users import _build_patient_profile_out
                 p_out = _build_patient_profile_out(patient, db)
@@ -715,6 +721,18 @@ def compute_assessment(req: AssessmentRequest, db: Session = Depends(get_db)):
     # Override or supplement with client-supplied values if any
     if req.profile_override:
         profile_dict.update(req.profile_override)
+
+    # Check for direct root-level profile attributes if profile_override was omitted
+    req_extra = getattr(req, "__pydantic_extra__", None) or {}
+    for attr in ["conditions", "allergies", "medications", "surgeries", "diet_type", 
+                 "exercise_habit", "alcohol", "smoking", "sleep_hours", "water_cups", 
+                 "mood", "stress", "energy", "work_pressure", "relaxation", "health_goal", 
+                 "goal", "age", "sex", "height_cm", "weight_kg", "bmi", "name", "dob"]:
+        if attr in req_extra and req_extra[attr] is not None:
+            if attr == "goal" and "health_goal" not in profile_dict:
+                profile_dict["health_goal"] = req_extra[attr]
+            else:
+                profile_dict[attr] = req_extra[attr]
 
     if not profile_dict and not uid_str:
         raise HTTPException(status_code=400, detail="Please provide a user_id or profile data.")

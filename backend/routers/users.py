@@ -341,15 +341,16 @@ def get_profile(user_id: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=500, detail=str(e))
 
     # 2. Try finding in Patient table by ID or User ID (UUID)
-    try:
-        patient = db.query(models.Patient).filter(models.Patient.id == clean_id).first()
-        if not patient and len(clean_id) == 36:
-            patient = db.query(models.Patient).filter(models.Patient.user_id == clean_id).first()
-        if patient:
-            return _build_patient_profile_out(patient, db)
-    except Exception as e:
-        db.rollback()
-        print(f"[ENERVARA] Error querying Patient by ID {clean_id}: {e}")
+    if len(clean_id) >= 32:
+        try:
+            import uuid
+            uuid.UUID(clean_id)
+            patient = db.query(models.Patient).filter((models.Patient.id == clean_id) | (models.Patient.user_id == clean_id)).first()
+            if patient:
+                return _build_patient_profile_out(patient, db)
+        except Exception as e:
+            db.rollback()
+            print(f"[ENERVARA] Error querying Patient by ID {clean_id}: {e}")
 
     # 3. Check if clean_id matches an AuthUser UUID
     if len(clean_id) == 36:
